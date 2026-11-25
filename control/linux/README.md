@@ -5,7 +5,8 @@ mouse, forwards them to a CoKVM Dongle over BLE, and gives them back with a
 hotkey. No video capture is involved: keep the controlled machine's own monitor
 in view.
 
-Protocol: `docs/protocols.cn.md`. Design: `docs/specs/2026-11-25-linux-control-design.md`.
+Protocol: `../../docs/protocols.cn.md`. Design: `../../docs/specs/2026-11-25-linux-control-design.md`
+(paths are relative to the repository root).
 
 ## Requirements
 
@@ -65,12 +66,16 @@ cokvm-linux run --exclude 'SynPS/2*' --include 'AT Translated Set 2*'
 cokvm-linux run --dry-run --verbose   # print frames, no BLE
 ```
 
+- The hotkey only works after the log shows `BLE connected and authenticated`;
+  before that it does nothing.
 - `Ctrl+Alt+Esc` grabs local input and starts controlling the controlled host.
 - `Ctrl+Alt+Esc` again releases local input immediately.
 - Unplugging the Dongle, losing BLE, or `kill`/`SIGTERM` also releases local
   input. A hard crash releases the grab when the process fd closes.
 - While released, the hotkey is still visible to local applications (it cannot
-  be swallowed without grabbing). The chord is unbound in common desktops.
+  be swallowed without grabbing). Some desktops bind `Ctrl+Alt+Esc` to something
+  else (KDE uses it for Kill Window). If so, unbind or remap it before using
+  this client.
 - `--include`/`--exclude` patterns are matched against the device name, its
   `/dev/input/eventN` path, and its `/dev/input/by-id/...` symlink. By-id
   patterns must be full paths, e.g. `'/dev/input/by-id/usb-Logitech*'`.
@@ -95,6 +100,7 @@ Description=CoKVM Linux client
 After=graphical-session.target
 
 [Service]
+# adjust this path to your checkout
 ExecStart=%h/source/cokvm/control/linux/.venv/bin/cokvm-linux run
 Restart=on-failure
 

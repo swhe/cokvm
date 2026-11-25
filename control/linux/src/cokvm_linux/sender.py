@@ -86,6 +86,7 @@ class FrameSender:
                         continue
                     self._motion = None
                 try:
+                    log.debug("frame %s", frame.hex(" "))
                     await self._transport.send(frame)
                 except Exception:
                     log.exception("frame send failed")

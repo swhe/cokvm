@@ -102,6 +102,7 @@ class Controller:
             asyncio.create_task(result)
 
     def handle_event(self, type_: int, code: int, value: int):
+        log.debug("event type=%d code=%d value=%d", type_, code, value)
         if type_ == ecodes.EV_KEY:
             if code in CHORD_KEY_CODES:
                 if self.hotkey.feed(code, value, self._now()):
