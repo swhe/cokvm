@@ -50,7 +50,12 @@ class FrameSender:
         self._keyboard.clear()
         self._discrete.clear()
         self._motion = None
-        self._idle.set()
+        # If the worker is running it will empty the queues and set _idle
+        # after the current in-flight send; forcing it here would let a
+        # subsequent drain() return before that send completes.  When the
+        # worker was never started nothing else will set it, so do it here.
+        if self._task is None or self._idle.is_set():
+            self._idle.set()
 
     async def drain(self, timeout: float = 0.2) -> None:
         try:

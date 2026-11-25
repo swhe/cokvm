@@ -1,3 +1,5 @@
+import asyncio
+
 from cokvm_linux.sender import FrameSender
 
 
@@ -43,3 +45,25 @@ async def test_clear_drops_pending_frames():
     await sender.drain()
     await sender.stop()
     assert transport.frames == []
+
+
+async def test_clear_does_not_mark_idle_while_send_is_in_flight():
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class SlowTransport:
+        async def send(self, frame):
+            started.set()
+            await release.wait()
+
+    sender = FrameSender(SlowTransport(), interval=0)
+    sender.submit_keyboard(b"k1")
+    sender.start()
+    await started.wait()
+    sender.clear()
+    drain_task = asyncio.create_task(sender.drain(timeout=0.05))
+    await asyncio.sleep(0.01)
+    assert not drain_task.done()
+    release.set()
+    await drain_task
+    await sender.stop()
