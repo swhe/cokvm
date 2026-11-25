@@ -331,6 +331,10 @@ async def _hotplug_loop(controller: Controller, config: Config, stop: asyncio.Ev
             infos = devices.select(
                 devices.enumerate_devices(), config.include, config.exclude)
             paths = [info.path for info in infos]
+            if (controller.state == "MONITOR"
+                    and set(paths) != set(controller.paths)):
+                controller.open_source(paths)
+                log.info("input devices changed: %d device(s)", len(paths))
         except Exception as exc:
             log.warning("device refresh failed: %s", exc)
             continue
@@ -338,10 +342,6 @@ async def _hotplug_loop(controller: Controller, config: Config, stop: asyncio.Ev
             if not set(controller.paths).issubset(set(paths)):
                 log.warning("input device removed while capturing; releasing")
                 await controller.graceful_release("device removed")
-            continue
-        if set(paths) != set(controller.paths):
-            controller.open_source(paths)
-            log.info("input devices changed: %d device(s)", len(paths))
 
 
 async def run_app(config: Config) -> int:
@@ -405,6 +405,8 @@ async def run_app(config: Config) -> int:
                 await task
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                log.warning("background task ended with an error", exc_info=True)
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.remove_signal_handler(sig)
     return 0
