@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from cokvm_linux.input_source import EvdevEventSource
 
 
@@ -71,3 +73,19 @@ def test_close_removes_reader_and_closes_device():
     source.close()
     assert 900003 not in loop.readers
     assert device.closed is True
+
+
+def test_partial_open_failure_cleans_up_opened_devices():
+    loop = FakeLoop()
+    first = FakeDevice(900004, [])
+
+    def open_device(path):
+        if path == "/dev/input/event900004":
+            return first
+        raise OSError("gone")
+
+    with pytest.raises(OSError):
+        EvdevEventSource(loop, ["/dev/input/event900004", "/dev/input/event900005"],
+                         lambda *_: None, open_device=open_device)
+    assert 900004 not in loop.readers
+    assert first.closed is True

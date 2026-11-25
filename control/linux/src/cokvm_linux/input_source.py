@@ -17,14 +17,18 @@ class EvdevEventSource:
         self._loop = loop
         self._on_event = on_event
         self._devices: dict[int, object] = {}
-        for path in paths:
-            device = open_device(path)
-            try:
-                os.set_blocking(device.fd, False)
-            except OSError:
-                pass
-            self._loop.add_reader(device.fd, self._on_readable, device)
-            self._devices[device.fd] = device
+        try:
+            for path in paths:
+                device = open_device(path)
+                try:
+                    os.set_blocking(device.fd, False)
+                except OSError:
+                    pass
+                self._loop.add_reader(device.fd, self._on_readable, device)
+                self._devices[device.fd] = device
+        except Exception:
+            self.close()
+            raise
 
     def _on_readable(self, device) -> None:
         try:
