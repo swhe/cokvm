@@ -169,7 +169,7 @@ control/linux/
 
 - MONITOR → CAPTURING：检测到 `Ctrl+Alt+Esc` → 对所有设备 `grab()` → 发送一帧“全键释放”（修饰键 0、6 个槽位全 0）清理受控机状态 → 鼠标坐标重置为中心。
 - CAPTURING → MONITOR：再次检测到 `Ctrl+Alt+Esc` → 发送全键释放 → 等待发送队列最多 200ms → 对所有设备 `release()`。
-- 设备在 CAPTURING 中消失（拔出）：从集合移除；若键盘集合变空，自动释放并回 MONITOR。
+- 设备在 CAPTURING 中消失（拔出）：2 秒巡检发现后立即释放并回 MONITOR（避免只拔键盘时无法按热键），随后在 MONITOR 下重新枚举。
 
 ### 7.3 和弦判定
 
