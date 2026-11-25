@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from cokvm_linux.sender import FrameSender
 
 
@@ -47,6 +49,16 @@ async def test_clear_drops_pending_frames():
     assert transport.frames == []
 
 
+async def test_second_start_raises_runtime_error():
+    sender = FrameSender(RecordingTransport(), interval=0)
+    sender.start()
+    try:
+        with pytest.raises(RuntimeError):
+            sender.start()
+    finally:
+        await sender.stop()
+
+
 async def test_clear_does_not_mark_idle_while_send_is_in_flight():
     started = asyncio.Event()
     release = asyncio.Event()
@@ -61,9 +73,10 @@ async def test_clear_does_not_mark_idle_while_send_is_in_flight():
     sender.start()
     await started.wait()
     sender.clear()
-    drain_task = asyncio.create_task(sender.drain(timeout=0.05))
+    drain_task = asyncio.create_task(sender.drain(timeout=1.0))
     await asyncio.sleep(0.01)
     assert not drain_task.done()
     release.set()
     await drain_task
+    assert sender._idle.is_set()
     await sender.stop()

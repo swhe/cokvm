@@ -22,6 +22,8 @@ class FrameSender:
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
+        if self._task is not None and not self._task.done():
+            raise RuntimeError("sender already started")
         self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:
@@ -33,6 +35,7 @@ class FrameSender:
         except asyncio.CancelledError:
             pass
         self._task = None
+        self._idle.set()
 
     def submit_keyboard(self, frame: bytes) -> None:
         self._keyboard.append(frame)
@@ -54,7 +57,7 @@ class FrameSender:
         # after the current in-flight send; forcing it here would let a
         # subsequent drain() return before that send completes.  When the
         # worker was never started nothing else will set it, so do it here.
-        if self._task is None or self._idle.is_set():
+        if self._task is None:
             self._idle.set()
 
     async def drain(self, timeout: float = 0.2) -> None:
@@ -76,10 +79,12 @@ class FrameSender:
                 elif self._discrete:
                     frame = self._discrete.popleft()
                 else:
-                    frame = self._motion
-                    self._motion = None
                     if self._interval:
                         await asyncio.sleep(self._interval)
+                    frame = self._motion
+                    if frame is None:
+                        continue
+                    self._motion = None
                 try:
                     await self._transport.send(frame)
                 except Exception:
