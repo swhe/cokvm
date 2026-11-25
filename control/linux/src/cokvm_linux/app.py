@@ -83,9 +83,11 @@ class Controller:
 
     def open_source(self, paths: list[str]) -> None:
         self.close_source()
-        self._paths = list(paths)
+        new_paths = list(paths)
+        source = self._source_factory(new_paths, self._dispatch)
+        self._paths = new_paths
         self.hotkey.reset()
-        self.source = self._source_factory(self._paths, self._dispatch)
+        self.source = source
 
     def close_source(self) -> None:
         if self.source is not None:
@@ -313,7 +315,13 @@ async def _connection_loop(controller: Controller, transport, disconnected: asyn
                 log.warning("BLE connect failed: %s", exc)
                 await _sleep_or_stop(next(delays), stop)
                 continue
+            delays = backoff_delays()
         disconnected.clear()
+        if not transport.authenticated:
+            log.warning("BLE disconnected; releasing local input")
+            controller.force_release("ble disconnect")
+            await _sleep_or_stop(next(delays), stop)
+            continue
         await _wait_or_stop(disconnected, stop)
         if stop.is_set():
             return
@@ -381,7 +389,7 @@ async def run_app(config: Config) -> int:
     connection_task = None
     if not config.dry_run:
         try:
-            await register_agent(read_passkey_from_tty)
+            await asyncio.wait_for(register_agent(read_passkey_from_tty), timeout=10.0)
             log.info("pairing agent registered")
         except Exception as exc:
             log.warning("pairing agent unavailable: %s", exc)
@@ -395,7 +403,6 @@ async def run_app(config: Config) -> int:
         await controller.graceful_release("shutdown")
         await sender.stop()
         controller.close_source()
-        await transport.close()
         hotplug_task.cancel()
         if connection_task is not None:
             connection_task.cancel()
@@ -407,6 +414,7 @@ async def run_app(config: Config) -> int:
                 pass
             except Exception:
                 log.warning("background task ended with an error", exc_info=True)
+        await transport.close()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.remove_signal_handler(sig)
     return 0

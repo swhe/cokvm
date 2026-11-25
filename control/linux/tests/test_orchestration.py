@@ -1,8 +1,10 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from cokvm_linux import app
-from cokvm_linux.app import DryRunTransport
+from cokvm_linux.app import Config, Controller, DryRunTransport
 
 
 async def test_dry_run_transport_is_authenticated(capsys):
@@ -47,3 +49,16 @@ async def test_hotplug_continues_after_open_source_failure(monkeypatch):
 
     assert task.exception() is None
     assert controller.open_attempts == 1
+
+
+def test_open_source_failure_keeps_paths_empty_for_retry():
+    class _Transport:
+        authenticated = True
+
+    def factory(paths, callback):
+        raise OSError("device vanished")
+
+    controller = Controller(Config(), None, _Transport(), factory)
+    with pytest.raises(OSError):
+        controller.open_source(["/dev/input/event0"])
+    assert controller.paths == []
