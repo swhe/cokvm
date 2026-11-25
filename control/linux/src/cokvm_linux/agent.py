@@ -35,7 +35,7 @@ class AgentError(Exception):
 
 def parse_passkey(text: str) -> int:
     value = text.strip()
-    if len(value) != 6 or not value.isdigit():
+    if len(value) != 6 or not value.isascii() or not value.isdigit():
         raise AgentError("配对码必须是 6 位数字")
     return int(value)
 
@@ -49,9 +49,9 @@ def read_passkey(stream_in, stream_out, prompt: str = "配对码: ") -> int:
     return parse_passkey(line)
 
 
-def read_passkey_from_tty(prompt: str = "配对码: ") -> int:
+def read_passkey_from_tty(prompt: str = "配对码: ", tty_path: str = "/dev/tty") -> int:
     try:
-        tty = open("/dev/tty", "r+", encoding="utf-8")
+        tty = open(tty_path, "r+", encoding="utf-8")
     except OSError as exc:
         raise AgentError("没有可用的终端（/dev/tty），请先用 bluetoothctl 配对") from exc
     with tty:
@@ -110,13 +110,26 @@ class PairingAgent(ServiceInterface):
 
 
 async def register_agent(passkey_provider, bus=None):
-    if bus is None:
+    owned = bus is None
+    if owned:
         bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     agent = PairingAgent(passkey_provider)
-    bus.export(AGENT_PATH, agent)
-    introspection = await bus.introspect("org.bluez", "/org/bluez")
-    proxy = bus.get_proxy_object("org.bluez", "/org/bluez", introspection)
-    interface = proxy.get_interface("org.bluez.AgentManager1")
-    await interface.call_register_agent(AGENT_PATH, AGENT_CAPABILITY)
-    await interface.call_request_default_agent(AGENT_PATH)
+    try:
+        bus.export(AGENT_PATH, agent)
+        introspection = await bus.introspect("org.bluez", "/org/bluez")
+        proxy = bus.get_proxy_object("org.bluez", "/org/bluez", introspection)
+        interface = proxy.get_interface("org.bluez.AgentManager1")
+        await interface.call_register_agent(AGENT_PATH, AGENT_CAPABILITY)
+        await interface.call_request_default_agent(AGENT_PATH)
+    except BaseException:
+        if owned:
+            try:
+                bus.unexport(AGENT_PATH)
+            except Exception:
+                pass
+            try:
+                await bus.disconnect()
+            except Exception:
+                pass
+        raise
     return bus, agent

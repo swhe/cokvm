@@ -3,7 +3,13 @@ import io
 import pytest
 from dbus_fast import DBusError
 
-from cokvm_linux.agent import AgentError, PairingAgent, parse_passkey, read_passkey
+from cokvm_linux.agent import (
+    AgentError,
+    PairingAgent,
+    parse_passkey,
+    read_passkey,
+    read_passkey_from_tty,
+)
 
 
 def test_parse_passkey_accepts_six_digits():
@@ -31,3 +37,36 @@ def test_agent_rejects_provider_failure():
     agent = PairingAgent(lambda: (_ for _ in ()).throw(AgentError("no tty")))
     with pytest.raises(DBusError):
         agent.RequestPasskey("/org/bluez/hci0/dev")
+
+
+def test_agent_exposes_all_methods():
+    agent = PairingAgent(lambda: 1)
+    names = {m.name for m in agent.introspect().methods}
+    assert names == {
+        "Release",
+        "RequestPinCode",
+        "DisplayPinCode",
+        "RequestPasskey",
+        "DisplayPasskey",
+        "RequestConfirmation",
+        "RequestAuthorization",
+        "AuthorizeService",
+        "Cancel",
+    }
+
+
+def test_read_passkey_from_tty_missing_tty():
+    with pytest.raises(AgentError):
+        read_passkey_from_tty(tty_path="/nonexistent/cokvm-tty")
+
+
+def test_read_passkey_eof():
+    with pytest.raises(AgentError):
+        read_passkey(io.StringIO(""), io.StringIO())
+
+
+@pytest.mark.parametrize("value", [-1, 1000000])
+def test_agent_rejects_out_of_range(value):
+    agent = PairingAgent(lambda: value)
+    with pytest.raises(DBusError):
+        agent.RequestPasskey("/x")
