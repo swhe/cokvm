@@ -47,18 +47,30 @@ class BleTransport:
         return await BleakScanner.find_device_by_filter(
             lambda device, adv: (device.name or adv.local_name) == self._device_name,
             timeout=self._scanner_timeout,
+            service_uuids=[SERVICE_UUID],
         )
 
     def _bleak_client(self, device):
         return BleakClient(device, disconnected_callback=self._on_disconnect)
 
     def _on_disconnect(self, client) -> None:
+        if client is not self._client:
+            return
+        self._client = None
         self.authenticated = False
-        if self._loop is not None and self._on_disconnect_cb is not None:
-            self._loop.call_soon_threadsafe(self._on_disconnect_cb)
+        self._notify_disconnect()
+
+    def _notify_disconnect(self) -> None:
+        if self._loop is None or self._loop.is_closed() or self._on_disconnect_cb is None:
+            return
+        self._loop.call_soon_threadsafe(self._on_disconnect_cb)
 
     async def connect(self) -> None:
         self._loop = asyncio.get_running_loop()
+        self.authenticated = False
+        self._write_failures = 0
+        if self._client is not None:
+            await self.close()
         device = await self._find_device()
         if device is None:
             raise BleError(f"device {self._device_name!r} not found")
@@ -106,8 +118,13 @@ class BleTransport:
                         self._write_failures, MAX_WRITE_FAILURES, exc)
             if self._write_failures >= MAX_WRITE_FAILURES:
                 self.authenticated = False
-                if self._loop is not None and self._on_disconnect_cb is not None:
-                    self._loop.call_soon_threadsafe(self._on_disconnect_cb)
+                stale, self._client = self._client, None
+                if stale is not None:
+                    try:
+                        await stale.disconnect()
+                    except Exception:
+                        pass
+                self._notify_disconnect()
 
     async def close(self) -> None:
         self.authenticated = False
