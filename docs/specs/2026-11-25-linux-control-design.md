@@ -43,7 +43,7 @@
 单进程 `cokvm-linux run`。进程内三块并发：
 
 - **asyncio 主循环**：BLE 连接/重连、Agent1 配对、VSS 发送队列、状态机。
-- **输入线程**：每个被枚举的设备一个阻塞读线程，把 evdev 事件推入线程安全队列。
+- **输入读取**：每个设备的 fd 通过 `loop.add_reader()` 注册回调，evdev 事件直接在 asyncio 循环里处理，不额外开线程。
 - **状态机**：`MONITOR`（未抓取，被动监听热键）与 `CAPTURING`（已 grab，转发键鼠）。状态切换只在主线程执行。
 
 选择单进程的理由：掉线释放、热键切换、发送节流共享同一份状态，避免“键鼠被抓住但无人释放”的窗口。
@@ -79,6 +79,7 @@ control/linux/
 │   ├── input_source.py
 │   ├── mouse.py
 │   ├── hotkey.py
+│   ├── sender.py
 │   ├── ble.py
 │   └── agent.py
 └── tests/
@@ -98,6 +99,7 @@ control/linux/
 | `input_source.py` | 事件读取、grab/release 封装；可替换接口，便于测试 | python-evdev |
 | `mouse.py` | 相对位移累积、夹边界、滚轮换算、复用最近坐标 | 无 |
 | `hotkey.py` | `Ctrl+Alt+Esc` 和弦状态机 | 无 |
+| `sender.py` | 发送队列与节流：键盘优先、运动合并、离散事件不丢 | 无 |
 | `ble.py` | 扫描、连接、`pair()`、读 `FF2C`、断线回调、退避重连、无响应写入 | bleak |
 | `agent.py` | BlueZ `Agent1`（`KeyboardOnly`），`RequestPasskey` 时在终端提示输入 6 位码 | dbus-next |
 | `app.py` | 状态机、队列消费、节流、信号处理、安全兜底 | 以上 |
@@ -173,7 +175,8 @@ control/linux/
 
 - `Ctrl`（左或右）+ `Alt`（左或右）+ `Esc` 三键同时按下即触发，顺序不限。
 - 触发后进入 150ms 冷却期，期间不重复触发；`Esc` 抬起后重置。
-- 触发的那一组按键不转发给受控机；进入 CAPTURING 时不转发按下，退出 CAPTURING 时的释放事件只作用于本机。
+- 进入 CAPTURING 时那一组按键本来就没有转发（MONITOR 不转发任何键）。
+- 退出 CAPTURING 时，Ctrl/Alt 可能已先作为普通修饰键转发（单独按下无副作用），Esc 及触发后的事件不转发；随后发送全键释放帧清理受控机状态。
 - 被动监听无法吞键，因此 MONITOR 状态下按 `Ctrl+Alt+Esc` 也会传给本机应用；该组合在常见桌面上无绑定，文档中说明。
 
 ## 8. BLE 连接与配对
@@ -187,7 +190,8 @@ control/linux/
 ### 8.2 Agent1 配对
 
 - 启动时用 `dbus-next` 在 `/org/bluez/cokvm_agent` 导出 `org.bluez.Agent1`，能力 `KeyboardOnly`，并调用 `org.bluez.AgentManager1.RegisterAgent` + `RequestDefaultAgent`。
-- `RequestPasskey`：在 `/dev/tty` 提示“输入 Dongle 控制台显示的 6 位配对码”，读取后返回 `uint32`。非交互环境（无 tty）直接返回失败并报错退出，提示改用 `bluetoothctl` 预配对。
+- `RequestPasskey`：在 `/dev/tty` 提示“输入 Dongle 控制台显示的 6 位配对码”，读取后返回 `uint32`。非交互环境（无 tty）直接返回失败，提示改用 `bluetoothctl` 预配对。
+- Agent 注册失败（D-Bus 无权限等）不是致命错误：记录警告，已绑定设备仍可连接，新设备需先用 `bluetoothctl` 配对。
 - `RequestConfirmation` / `RequestAuthorization`：返回成功（Dongle 为 Display Only，正常流程不会走到确认分支；保留实现以防固件配置变化）。
 - 配对成功后 BlueZ 自动保存 bond，后续无需重新输入。
 
