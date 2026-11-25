@@ -29,7 +29,7 @@
 | 主题 | 决策 |
 | :--- | :--- |
 | 形态 | 极简 CLI，单进程，无视频 |
-| 实现语言 | Python 3，依赖 `bleak`、`python-evdev`、`dbus-next` |
+| 实现语言 | Python 3，依赖 `bleak`、`python-evdev`、`dbus-fast` |
 | 切换热键 | `Ctrl+Alt+Esc`，同一热键进出 |
 | 释放状态 | 继续只读监听键盘以捕获热键，但不 grab |
 | 掉线行为 | 立即释放 `EVIOCGRAB`，退避重连，重连后保持 MONITOR |
@@ -101,7 +101,7 @@ control/linux/
 | `hotkey.py` | `Ctrl+Alt+Esc` 和弦状态机 | 无 |
 | `sender.py` | 发送队列与节流：键盘优先、运动合并、离散事件不丢 | 无 |
 | `ble.py` | 扫描、连接、`pair()`、读 `FF2C`、断线回调、退避重连、无响应写入 | bleak |
-| `agent.py` | BlueZ `Agent1`（`KeyboardOnly`），`RequestPasskey` 时在终端提示输入 6 位码 | dbus-next |
+| `agent.py` | BlueZ `Agent1`（`KeyboardOnly`），`RequestPasskey` 时在终端提示输入 6 位码 | dbus-fast |
 | `app.py` | 状态机、队列消费、节流、信号处理、安全兜底 | 以上 |
 | `cli.py` | 子命令与参数解析 | argparse |
 
@@ -189,7 +189,7 @@ control/linux/
 
 ### 8.2 Agent1 配对
 
-- 启动时用 `dbus-next` 在 `/org/bluez/cokvm_agent` 导出 `org.bluez.Agent1`，能力 `KeyboardOnly`，并调用 `org.bluez.AgentManager1.RegisterAgent` + `RequestDefaultAgent`。
+- 启动时用 `dbus-fast` 在 `/org/bluez/cokvm_agent` 导出 `org.bluez.Agent1`，能力 `KeyboardOnly`，并调用 `org.bluez.AgentManager1.RegisterAgent` + `RequestDefaultAgent`。
 - `RequestPasskey`：在 `/dev/tty` 提示“输入 Dongle 控制台显示的 6 位配对码”，读取后返回 `uint32`。非交互环境（无 tty）直接返回失败，提示改用 `bluetoothctl` 预配对。
 - Agent 注册失败（D-Bus 无权限等）不是致命错误：记录警告，已绑定设备仍可连接，新设备需先用 `bluetoothctl` 配对。
 - `RequestConfirmation` / `RequestAuthorization`：返回成功（Dongle 为 Display Only，正常流程不会走到确认分支；保留实现以防固件配置变化）。
