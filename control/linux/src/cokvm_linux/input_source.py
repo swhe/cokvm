@@ -17,15 +17,17 @@ class EvdevEventSource:
         self._loop = loop
         self._on_event = on_event
         self._devices: dict[int, object] = {}
+        self._grabbed = False
         try:
             for path in paths:
                 device = open_device(path)
+                self._devices[device.fd] = device
                 try:
                     os.set_blocking(device.fd, False)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    log.warning("set_blocking %s failed: %s",
+                                getattr(device, "path", "?"), exc)
                 self._loop.add_reader(device.fd, self._on_readable, device)
-                self._devices[device.fd] = device
         except Exception:
             self.close()
             raise
@@ -34,10 +36,28 @@ class EvdevEventSource:
         try:
             for event in device.read():
                 self._on_event(event.type, event.code, event.value)
-        except (BlockingIOError, OSError):
+        except BlockingIOError:
             pass
+        except OSError as exc:
+            log.warning("read %s failed, dropping device: %s",
+                        getattr(device, "path", "?"), exc)
+            self._remove(device)
+
+    def _remove(self, device) -> None:
+        fd = device.fd
+        try:
+            self._loop.remove_reader(fd)
+        except Exception:
+            pass
+        try:
+            device.close()
+        except Exception:
+            pass
+        self._devices.pop(fd, None)
 
     def set_grab(self, enabled: bool) -> None:
+        if enabled == self._grabbed:
+            return
         for device in self._devices.values():
             try:
                 if enabled:
@@ -46,15 +66,9 @@ class EvdevEventSource:
                     device.ungrab()
             except OSError as exc:
                 log.warning("grab %s failed: %s", getattr(device, "path", "?"), exc)
+        self._grabbed = enabled
 
     def close(self) -> None:
-        for fd, device in list(self._devices.items()):
-            try:
-                self._loop.remove_reader(fd)
-            except Exception:
-                pass
-            try:
-                device.close()
-            except Exception:
-                pass
-        self._devices.clear()
+        for device in list(self._devices.values()):
+            self._remove(device)
+        self._grabbed = False
