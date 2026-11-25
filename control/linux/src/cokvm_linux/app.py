@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import logging
+import signal
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,8 +14,11 @@ from typing import Protocol
 
 from evdev import ecodes
 
-from . import keymap, mouse, vss
+from . import devices, keymap, mouse, vss
+from .agent import read_passkey_from_tty, register_agent
+from .ble import BleTransport, backoff_delays
 from .hotkey import CHORD_KEY_CODES, HotkeyDetector
+from .input_source import EvdevEventSource
 from .sender import FrameSender
 
 log = logging.getLogger(__name__)
@@ -263,3 +269,142 @@ class Controller:
     def close(self) -> None:
         self.force_release("shutdown")
         self.close_source()
+
+
+class DryRunTransport:
+    authenticated = True
+
+    async def connect(self) -> None:
+        return None
+
+    async def send(self, frame: bytes) -> None:
+        print(f"frame {frame.hex(' ')}", file=sys.stderr)
+
+    async def close(self) -> None:
+        return None
+
+
+async def _sleep_or_stop(seconds: float, stop: asyncio.Event) -> None:
+    try:
+        await asyncio.wait_for(stop.wait(), timeout=seconds)
+    except asyncio.TimeoutError:
+        pass
+
+
+async def _wait_or_stop(event: asyncio.Event, stop: asyncio.Event) -> bool:
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(event.wait(), timeout=0.5)
+            return True
+        except asyncio.TimeoutError:
+            continue
+    return False
+
+
+async def _connection_loop(controller: Controller, transport, disconnected: asyncio.Event,
+                           stop: asyncio.Event) -> None:
+    delays = backoff_delays()
+    while not stop.is_set():
+        if not transport.authenticated:
+            try:
+                await transport.connect()
+                log.info("BLE connected and authenticated")
+            except Exception as exc:
+                log.warning("BLE connect failed: %s", exc)
+                await _sleep_or_stop(next(delays), stop)
+                continue
+        disconnected.clear()
+        await _wait_or_stop(disconnected, stop)
+        if stop.is_set():
+            return
+        log.warning("BLE disconnected; releasing local input")
+        controller.force_release("ble disconnect")
+        await _sleep_or_stop(next(delays), stop)
+
+
+async def _hotplug_loop(controller: Controller, config: Config, stop: asyncio.Event) -> None:
+    while not stop.is_set():
+        await _sleep_or_stop(2.0, stop)
+        if stop.is_set():
+            continue
+        try:
+            infos = devices.select(
+                devices.enumerate_devices(), config.include, config.exclude)
+            paths = [info.path for info in infos]
+        except Exception as exc:
+            log.warning("device refresh failed: %s", exc)
+            continue
+        if controller.state != "MONITOR":
+            if not set(controller.paths).issubset(set(paths)):
+                log.warning("input device removed while capturing; releasing")
+                await controller.graceful_release("device removed")
+            continue
+        if set(paths) != set(controller.paths):
+            controller.open_source(paths)
+            log.info("input devices changed: %d device(s)", len(paths))
+
+
+async def run_app(config: Config) -> int:
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop.set)
+
+    disconnected = asyncio.Event()
+    if config.dry_run:
+        transport = DryRunTransport()
+    else:
+        transport = BleTransport(config.device_name, on_disconnect=disconnected.set)
+
+    sender = FrameSender(transport, config.motion_interval)
+    source_factory = lambda paths, callback: EvdevEventSource(loop, paths, callback)
+    controller = Controller(config, sender, transport, source_factory)
+    release_on_exit = controller.force_release
+    atexit.register(release_on_exit, "atexit")
+
+    try:
+        infos = devices.select(devices.enumerate_devices(), config.include, config.exclude)
+        controller.open_source([info.path for info in infos])
+    except Exception as exc:
+        log.error("cannot open input devices: %s", exc)
+        atexit.unregister(release_on_exit)
+        await transport.close()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.remove_signal_handler(sig)
+        return 1
+    if not infos:
+        log.warning("no readable input devices; is your user in the 'input' group?")
+    log.info("input devices: %d", len(infos))
+    sender.start()
+
+    hotplug_task = asyncio.create_task(_hotplug_loop(controller, config, stop))
+    connection_task = None
+    if not config.dry_run:
+        try:
+            await register_agent(read_passkey_from_tty)
+            log.info("pairing agent registered")
+        except Exception as exc:
+            log.warning("pairing agent unavailable: %s", exc)
+        connection_task = asyncio.create_task(
+            _connection_loop(controller, transport, disconnected, stop))
+
+    try:
+        await stop.wait()
+    finally:
+        atexit.unregister(release_on_exit)
+        await controller.graceful_release("shutdown")
+        await sender.stop()
+        controller.close_source()
+        await transport.close()
+        hotplug_task.cancel()
+        if connection_task is not None:
+            connection_task.cancel()
+        tasks = [hotplug_task] + ([connection_task] if connection_task else [])
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.remove_signal_handler(sig)
+    return 0
