@@ -28,15 +28,15 @@ def test_read_passkey_prompts_and_reads():
     assert out.getvalue() == "配对码: "
 
 
-def test_agent_returns_provider_value():
+async def test_agent_returns_provider_value():
     agent = PairingAgent(lambda: 112233)
-    assert agent.RequestPasskey("/org/bluez/hci0/dev") == 112233
+    assert await agent.RequestPasskey("/org/bluez/hci0/dev") == 112233
 
 
-def test_agent_rejects_provider_failure():
+async def test_agent_rejects_provider_failure():
     agent = PairingAgent(lambda: (_ for _ in ()).throw(AgentError("no tty")))
     with pytest.raises(DBusError):
-        agent.RequestPasskey("/org/bluez/hci0/dev")
+        await agent.RequestPasskey("/org/bluez/hci0/dev")
 
 
 def test_agent_exposes_all_methods():
@@ -66,7 +66,7 @@ def test_read_passkey_eof():
 
 
 @pytest.mark.parametrize("value", [-1, 1000000])
-def test_agent_rejects_out_of_range(value):
+async def test_agent_rejects_out_of_range(value):
     agent = PairingAgent(lambda: value)
     with pytest.raises(DBusError):
-        agent.RequestPasskey("/x")
+        await agent.RequestPasskey("/x")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import os
 
@@ -20,7 +21,11 @@ class EvdevEventSource:
         self._grabbed = False
         try:
             for path in paths:
-                device = open_device(path)
+                try:
+                    device = open_device(path)
+                except OSError as exc:
+                    log.warning("cannot open %s: %s", path, exc)
+                    continue
                 self._devices[device.fd] = device
                 try:
                     os.set_blocking(device.fd, False)
@@ -39,6 +44,8 @@ class EvdevEventSource:
         except BlockingIOError:
             pass
         except OSError as exc:
+            if exc.errno == errno.EINTR:
+                return
             log.warning("read %s failed, dropping device: %s",
                         getattr(device, "path", "?"), exc)
             self._remove(device)

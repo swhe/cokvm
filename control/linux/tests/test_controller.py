@@ -189,6 +189,18 @@ async def test_graceful_release_sends_all_up_and_clears_buttons(env):
     assert vss.mouse_frame(0, 8640, 8640, 0) in transport.frames
 
 
+async def test_exit_drops_stale_motion_before_neutral_frame(env):
+    controller, sender, transport, source = env
+    await controller.enter_capture()
+    controller.handle_event(ecodes.EV_KEY, ecodes.BTN_LEFT, 1)
+    controller.handle_event(ecodes.EV_REL, ecodes.REL_X, 10)
+    controller.handle_event(ecodes.EV_SYN, ecodes.SYN_REPORT, 0)
+    # Do not drain: the button-held motion is still queued.
+    await controller.exit_capture("hotkey")
+    await sender.drain()
+    assert transport.frames[-1] == vss.mouse_frame(0, 8730, 8640, 0)
+
+
 async def test_pending_motion_does_not_leak_between_captures(env):
     controller, sender, transport, source = env
     await controller.enter_capture()

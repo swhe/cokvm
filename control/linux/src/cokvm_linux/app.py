@@ -194,6 +194,14 @@ class Controller:
         x, y = self.mouse.pos
         return vss.mouse_frame(self.mouse.buttons, x, y, wheel)
 
+    def send_neutral(self) -> None:
+        self._mods = 0
+        self._mod_codes.clear()
+        self._keys.clear()
+        self.mouse.buttons = 0
+        self.sender.submit_keyboard(vss.keyboard_frame(0, []))
+        self.sender.submit_discrete(self._mouse_frame())
+
     async def enter_capture(self) -> None:
         if self.state != "MONITOR" or not self.transport.authenticated:
             return
@@ -223,6 +231,7 @@ class Controller:
         self._generation += 1
         gen = self._generation
         self.state = "RELEASING"
+        self.sender.clear()
         self.mouse.buttons = 0
         self.sender.submit_keyboard(vss.keyboard_frame(0, []))
         self.sender.submit_discrete(self._mouse_frame())
@@ -238,6 +247,7 @@ class Controller:
 
     async def graceful_release(self, reason: str) -> None:
         if self.state == "CAPTURING" and self.transport.authenticated:
+            self.sender.clear()
             self._mods = 0
             self._mod_codes.clear()
             self._keys.clear()
@@ -311,6 +321,8 @@ async def _connection_loop(controller: Controller, transport, disconnected: asyn
         if not transport.authenticated:
             try:
                 await transport.connect()
+                controller.send_neutral()
+                await controller.sender.drain(0.2)
                 log.info("BLE connected and authenticated")
             except Exception as exc:
                 log.warning("BLE connect failed: %s", exc)

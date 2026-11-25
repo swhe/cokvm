@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from dbus_fast import DBusError
 from dbus_fast.aio import MessageBus
 from dbus_fast.constants import BusType
@@ -85,8 +87,9 @@ class PairingAgent(ServiceInterface):
         return None
 
     @_method()
-    def RequestPasskey(self, device: "o") -> "u":
-        return self._passkey()
+    async def RequestPasskey(self, device: "o") -> "u":
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._passkey)
 
     @_method()
     def DisplayPasskey(self, device: "o", passkey: "u", entered: "q"):

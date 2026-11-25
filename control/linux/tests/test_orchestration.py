@@ -51,6 +51,51 @@ async def test_hotplug_continues_after_open_source_failure(monkeypatch):
     assert controller.open_attempts == 1
 
 
+async def test_connection_loop_sends_neutral_and_releases_on_disconnect():
+    from cokvm_linux import app
+
+    class FakeTransport:
+        def __init__(self):
+            self.authenticated = False
+
+        async def connect(self):
+            self.authenticated = True
+
+    class FakeSender:
+        def __init__(self):
+            self.drains = 0
+
+        async def drain(self, timeout=0.2):
+            self.drains += 1
+
+    class FakeController:
+        def __init__(self):
+            self.neutral = 0
+            self.released = []
+            self.sender = FakeSender()
+
+        def send_neutral(self):
+            self.neutral += 1
+
+        def force_release(self, reason):
+            self.released.append(reason)
+
+    transport = FakeTransport()
+    controller = FakeController()
+    disconnected = asyncio.Event()
+    stop = asyncio.Event()
+    task = asyncio.create_task(
+        app._connection_loop(controller, transport, disconnected, stop))
+    await asyncio.sleep(0.01)
+    assert controller.neutral == 1
+    assert controller.sender.drains == 1
+    disconnected.set()
+    await asyncio.sleep(0.01)
+    stop.set()
+    await asyncio.wait_for(task, 1.0)
+    assert controller.released == ["ble disconnect"]
+
+
 def test_open_source_failure_keeps_paths_empty_for_retry():
     class _Transport:
         authenticated = True

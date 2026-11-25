@@ -2,7 +2,7 @@ import argparse
 
 import pytest
 
-from cokvm_linux.cli import build_parser, main, parse_resolution
+from cokvm_linux.cli import build_parser, main, parse_resolution, positive_float
 
 
 def test_parse_resolution():
@@ -14,6 +14,13 @@ def test_parse_resolution():
 def test_parse_resolution_rejects_bad_input(value):
     with pytest.raises(argparse.ArgumentTypeError):
         parse_resolution(value)
+
+
+def test_positive_float():
+    assert positive_float("2") == 2.0
+    for value in ("0", "abc"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            positive_float(value)
 
 
 def test_run_defaults():

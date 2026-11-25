@@ -25,6 +25,16 @@ def parse_resolution(text: str) -> tuple[int, int]:
     return w, h
 
 
+def positive_float(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("必须是数字") from exc
+    if value <= 0:
+        raise argparse.ArgumentTypeError("必须为正数")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cokvm-linux")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -33,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--target-resolution", type=parse_resolution,
                      default=(1920, 1080), metavar="WxH",
                      help="target screen resolution for mouse mapping, e.g. 1920x1080")
-    run.add_argument("--sensitivity", type=float, default=1.0,
+    run.add_argument("--sensitivity", type=positive_float, default=1.0,
                      help="mouse sensitivity multiplier")
     run.add_argument("--include", action="append", default=[], metavar="PATTERN",
                      help="only include devices matching this fnmatch pattern "
@@ -52,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("list-devices", help="list candidate input devices")
 
     scan = subparsers.add_parser("scan", help="scan BLE devices")
-    scan.add_argument("--timeout", type=float, default=10.0,
+    scan.add_argument("--timeout", type=positive_float, default=10.0,
                       help="scan timeout in seconds")
     return parser
 

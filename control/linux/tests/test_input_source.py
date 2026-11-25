@@ -88,7 +88,7 @@ def test_close_removes_reader_and_closes_device():
     assert device.closed is True
 
 
-def test_partial_open_failure_cleans_up_opened_devices():
+def test_unopenable_device_is_skipped():
     loop = FakeLoop()
     first = FakeDevice(900004, [])
 
@@ -97,11 +97,11 @@ def test_partial_open_failure_cleans_up_opened_devices():
             return first
         raise OSError("gone")
 
-    with pytest.raises(OSError):
-        EvdevEventSource(loop, ["/dev/input/event900004", "/dev/input/event900005"],
-                         lambda *_: None, open_device=open_device)
-    assert 900004 not in loop.readers
-    assert first.closed is True
+    source = EvdevEventSource(loop, ["/dev/input/event900004", "/dev/input/event900005"],
+                              lambda *_: None, open_device=open_device)
+    assert 900004 in loop.readers
+    assert len(source._devices) == 1
+    assert next(iter(source._devices.values())) is first
 
 
 def test_double_close_is_a_noop():
