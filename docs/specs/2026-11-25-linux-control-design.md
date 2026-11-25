@@ -113,7 +113,7 @@ control/linux/
 
 - 用 `evdev.list_devices()` 枚举 `/dev/input/event*`，打开后按能力分类：
   - **键盘**：`EV_KEY` 且包含 `KEY_A`（字母区能力），排除 `BUS_VIRTUAL`。
-  - **鼠标**：包含 `REL_X` 与 `REL_Y`，或包含 `ABS_X`/`ABS_Y` 且带 `BTN_LEFT`。
+  - **鼠标**：包含 `REL_X` 与 `REL_Y`。绝对坐标设备（绘图板等）不支持；触摸板单独排除。
 - 排除：只有电源键/lid/开关的设备（`KEY_POWER`、`EV_SW` 且无其他按键）、`BUS_VIRTUAL` 设备、触摸板（见 6.5）。
 - `--include` / `--exclude` 接受设备名或 `/dev/input/by-id/*` 路径的 fnmatch 模式，`--exclude` 优先。
 - `cokvm-linux list-devices` 打印设备名、路径、bus、键盘/鼠标能力，便于排查权限与过滤结果。
@@ -177,7 +177,7 @@ control/linux/
 - 触发后进入 150ms 冷却期，期间不重复触发；`Esc` 抬起后重置。
 - 进入 CAPTURING 时那一组按键本来就没有转发（MONITOR 不转发任何键）。
 - 退出 CAPTURING 时，Ctrl/Alt 可能已先作为普通修饰键转发（单独按下无副作用），Esc 及触发后的事件不转发；随后发送全键释放帧清理受控机状态。
-- 被动监听无法吞键，因此 MONITOR 状态下按 `Ctrl+Alt+Esc` 也会传给本机应用；该组合在常见桌面上无绑定，文档中说明。
+- 被动监听无法吞键，因此 MONITOR 状态下按 `Ctrl+Alt+Esc` 也会传给本机应用；部分桌面已有绑定（例如 KDE 的 Kill Window），冲突时需在桌面设置里解除或改用其他组合，文档中说明。
 
 ## 8. BLE 连接与配对
 
