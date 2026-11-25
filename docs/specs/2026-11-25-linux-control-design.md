@@ -113,7 +113,7 @@ control/linux/
 
 - 用 `evdev.list_devices()` 枚举 `/dev/input/event*`，打开后按能力分类：
   - **键盘**：`EV_KEY` 且包含 `KEY_A`（字母区能力），排除 `BUS_VIRTUAL`。
-  - **鼠标**：包含 `REL_X` 与 `REL_Y`，或包含 `ABS_X`/`ABS_Y` 且带 `BTN_LEFT`。
+  - **鼠标**：包含 `REL_X` 与 `REL_Y`。绝对坐标设备（绘图板等）不支持；触摸板单独排除。
 - 排除：只有电源键/lid/开关的设备（`KEY_POWER`、`EV_SW` 且无其他按键）、`BUS_VIRTUAL` 设备、触摸板（见 6.5）。
 - `--include` / `--exclude` 接受设备名或 `/dev/input/by-id/*` 路径的 fnmatch 模式，`--exclude` 优先。
 - `cokvm-linux list-devices` 打印设备名、路径、bus、键盘/鼠标能力，便于排查权限与过滤结果。
