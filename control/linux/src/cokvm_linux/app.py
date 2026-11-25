@@ -61,7 +61,9 @@ class Controller:
             config.target_width, config.target_height, config.sensitivity)
         self.source: EventSource | None = None
         self._paths: list[str] = []
+        self._generation = 0
         self._mods = 0
+        self._mod_codes: set[int] = set()
         self._keys: list[int] = []
         self._pending_dx = 0
         self._pending_dy = 0
@@ -122,8 +124,12 @@ class Controller:
                 self._pending_dy += value
             elif code == ecodes.REL_WHEEL:
                 self._pending_wheel += value
-        elif type_ == ecodes.EV_SYN and code == ecodes.SYN_REPORT:
-            self._flush_mouse()
+        elif type_ == ecodes.EV_SYN:
+            if code == ecodes.SYN_REPORT:
+                self._flush_mouse()
+            elif code == ecodes.SYN_DROPPED:
+                self._pending_dx = self._pending_dy = self._pending_wheel = 0
+                self._pending_buttons = False
         return None
 
     def _handle_key(self, code: int, value: int) -> None:
@@ -133,9 +139,14 @@ class Controller:
         usage = keymap.key_to_usage(code)
         if modifier is not None:
             if value == 1:
-                self._mods |= modifier
+                self._mod_codes.add(code)
             else:
-                self._mods &= ~modifier
+                self._mod_codes.discard(code)
+            self._mods = 0
+            for held in self._mod_codes:
+                bit = keymap.modifier_bit(held)
+                if bit is not None:
+                    self._mods |= bit
         elif usage is not None:
             if value == 1:
                 if usage in self._keys:
@@ -153,14 +164,16 @@ class Controller:
         self.sender.submit_keyboard(vss.keyboard_frame(self._mods, self._keys))
 
     def _flush_mouse(self) -> None:
-        if self._pending_dx or self._pending_dy:
+        moved = self._pending_dx != 0 or self._pending_dy != 0
+        if moved:
             self.mouse.move(self._pending_dx, self._pending_dy)
             self._pending_dx = 0
             self._pending_dy = 0
             self.sender.submit_motion(self._mouse_frame())
         if self._pending_buttons:
             self._pending_buttons = False
-            self.sender.submit_discrete(self._mouse_frame())
+            if not moved:
+                self.sender.submit_discrete(self._mouse_frame())
         if self._pending_wheel:
             if abs(self._pending_wheel) > 1:
                 log.warning("wheel delta %d clamped to one frame", self._pending_wheel)
@@ -175,34 +188,63 @@ class Controller:
     async def enter_capture(self) -> None:
         if self.state != "MONITOR" or not self.transport.authenticated:
             return
+        self._generation += 1
+        gen = self._generation
         self.state = "CAPTURING"
         self._set_grab(True)
         self._mods = 0
+        self._mod_codes.clear()
         self._keys.clear()
+        self._pending_dx = 0
+        self._pending_dy = 0
+        self._pending_wheel = 0
+        self._pending_buttons = False
         self._swallow_chord = False
         self.mouse.reset_center()
         self.sender.submit_keyboard(vss.keyboard_frame(0, []))
         self.sender.submit_discrete(self._mouse_frame())
         await self.sender.drain(0.2)
+        if gen != self._generation:
+            return
         log.info("MONITOR -> CAPTURING")
 
     async def exit_capture(self, reason: str) -> None:
         if self.state != "CAPTURING":
             return
+        self._generation += 1
+        gen = self._generation
         self.state = "RELEASING"
+        self.mouse.buttons = 0
         self.sender.submit_keyboard(vss.keyboard_frame(0, []))
+        self.sender.submit_discrete(self._mouse_frame())
         await self.sender.drain(0.2)
+        if gen != self._generation:
+            return
         self._set_grab(False)
         self._mods = 0
+        self._mod_codes.clear()
         self._keys.clear()
         self.state = "MONITOR"
         log.info("CAPTURING -> MONITOR (%s)", reason)
 
+    async def graceful_release(self, reason: str) -> None:
+        if self.state == "CAPTURING" and self.transport.authenticated:
+            self._mods = 0
+            self._mod_codes.clear()
+            self._keys.clear()
+            self.mouse.buttons = 0
+            self.sender.submit_keyboard(vss.keyboard_frame(0, []))
+            self.sender.submit_discrete(self._mouse_frame())
+            await self.sender.drain(0.2)
+        self.force_release(reason)
+
     def force_release(self, reason: str) -> None:
+        self._generation += 1
         self._set_grab(False)
         self.sender.clear()
         self.hotkey.reset()
         self._mods = 0
+        self._mod_codes.clear()
         self._keys.clear()
         self._pending_dx = 0
         self._pending_dy = 0
