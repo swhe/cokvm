@@ -349,8 +349,12 @@ async def _hotplug_loop(controller: Controller, config: Config, stop: asyncio.Ev
         if stop.is_set():
             continue
         try:
-            infos = devices.select(
-                devices.enumerate_devices(), config.include, config.exclude)
+            # Enumerating evdev devices opens and closes every /dev/input/event*,
+            # which can block for hundreds of milliseconds (USB/i2c close paths).
+            # Keep it off the loop so input forwarding never stalls behind a scan.
+            infos = await asyncio.to_thread(
+                lambda: devices.select(
+                    devices.enumerate_devices(), config.include, config.exclude))
             paths = [info.path for info in infos]
             if (controller.state == "MONITOR"
                     and set(paths) != set(controller.paths)):
