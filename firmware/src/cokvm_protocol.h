@@ -2,6 +2,7 @@
 #define COKVM_PROTOCOL_H
 
 #include <stdint.h>
+#include <zephyr/toolchain.h>
 
 #define COKVM_PROTO_MAGIC_K         0x4b
 #define COKVM_PROTO_MAGIC_M         0x4d
