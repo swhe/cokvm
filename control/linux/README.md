@@ -57,6 +57,20 @@ bluetoothctl --agent KeyboardOnly
 > trust <dongle-address>
 ```
 
+## One-shot launcher
+
+`run.sh` starts the client with one command and handles the common setup
+pitfalls: it checks that the venv is installed, grants a per-user ACL on
+`/dev/input/event*` when the devices are not readable (prompting for sudo),
+and passes any extra arguments through to `cokvm-linux run`.
+
+```bash
+cd control/linux
+./run.sh
+./run.sh --target-resolution 2560x1440
+./run.sh --dry-run --verbose
+```
+
 ## Usage
 
 ```bash
