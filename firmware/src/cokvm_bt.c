@@ -183,7 +183,9 @@ static void connected(struct bt_conn *conn, uint8_t err)
     current_conn = bt_conn_ref(conn);
 
     bt_addr_le_copy(&last_bonded_peer, bt_conn_get_dst(conn));
-    LOG_INF("saved bonded peer address: %s", bt_addr_le_str(&last_bonded_peer));
+    char addr_str[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(&last_bonded_peer, addr_str, sizeof(addr_str));
+    LOG_INF("saved bonded peer address: %s", addr_str);
 
     int sec_err = bt_conn_set_security(conn, BT_SECURITY_L2);
     if (sec_err) {
